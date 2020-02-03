@@ -1,0 +1,396 @@
+---
+title: "Clustering avec mélanges de gaussiennes"
+output:
+  html_document:
+    df_print: paged
+---
+
+Dans ce notebook nous travaillons sur un algorithme classique de clustering basé sur le modèle de mélange de gaussiennes.
+
+### 1. Modèle de mélange gaussien
+
+Soient $\mu_1, \dots, \mu_K \in \mathbb R^d$ et $v_1, \dots, v_K \in ]0, \infty[$, où $K \ge 1$ est un entier qui correspond au nombre de clusters. 
+Soit $Z$ un vecteur aléatoire gaussien variable aléatoire de loi $N(0, I_d)$ et soit $\xi$ une variable aléatoire à valeurs dans $\{1, \dots, K\}$ et indépendante de $Z$.
+On définit la variable aléatoire
+$$ 
+X= \mu_\xi + \sqrt{v_\xi} Z.
+$$
+
+On peut montrer que $X$ admet comme densité la fonction
+$$
+\sum_{k=1}^K p_k \phi_{\mu_k,v_k}(x)
+$$
+où $p_k = \mathbb P(\xi=k)$ et $\phi_{\mu,v}$ désigne la densité de la loi $N(\mu, v I_d)$.
+On appelle cette densité une densité mélange de gaussiennes, car c'est une combinaison convexe de densités gaussiennes $\phi_{\mu_k, v_k}$.
+
+**Question**
+
+1. Simuler un $n$-échantillon de $X$. On prendra par exemple $n=500$, $K=3$, $d=2$, $p=(1/10, 1/2, 2/5)$, $\mu_1 = (0, 0)$, $\mu_2 = (-5, 5)$, $\mu_3 = (4, 3)$  et $v_1 = 1$, $v_2 = 1.5$ et $v3 = 2$. 
+On ecrira une fonction qui prend en parametre $n, p, \mu$ et $v$, et qui renvoie un échantillon simulé selon ce modèle (on pourra utiliser la fonction `rmultinom` de `R`).
+
+```{r}
+n = 500
+probabilities = c(0.1, 0.5, 2/5)
+truc = rmultinom(n=n, size=1, prob=probabilities)
+machin = max.col(t(truc))
+prop.table(table(machin))
+```
+
+```{r}
+mixture_simulation = function(n, probabilities, means, variances) {
+  # n : taille de l'echantillon
+  # probabilities : un vecteur de probabilité de taille K
+  # means : une matrice de taille (d, K) qui contient les espérances des gaussiennes
+  # variances : un vecteur de taille K qui contient les variances
+  idx_clusters = max.col(t(rmultinom(n=n, size=1, prob=probabilities)))
+  d = nrow(means)
+  X = matrix(nrow=n, ncol=d)
+  for(i in 1:n) {
+    idx_cluster = idx_clusters[i]
+    mu = means[, idx_cluster]
+    v = variances[idx_cluster]
+    X[i,] = mu + sqrt(v) * rnorm(d)
+  }
+  return(list(data=X, cluster=idx_clusters))
+}
+```
+
+```{r}
+n = 500
+K = 3
+d = 2
+probabilities = c(1/10, 1/2, 2/5)
+means = matrix(nrow=d, ncol=K)
+means[, 1] = c(0, 0)
+means[, 2] = c(-5, 5)
+means[, 3] = c(3, 3)
+variances = c(4, 2.5, 2)
+
+simu = mixture_simulation(n, probabilities, means, variances)
+X = simu$data
+clusters = simu$cluster
+```
+
+2. Représentez graphiquement ces données simulées avec un scatter plot.
+
+```{r}
+par(pin=c(4, 3))
+plot(X, col=clusters)
+# plot(X)
+```
+
+On connait ici le numéro de cluster de chaque point car a simulé les données.
+Maintenant on veut retrouver en aveugle les numéros de cluster des points.
+C'est à dire que, à partir de 
+```{r}
+par(pin=c(4, 3))
+plot(X)
+```
+on veut retrouver ça
+```{r}
+par(pin=c(4, 3))
+plot(X, col=clusters)
+```
+
+Idee du soft assignment
+
+Regardons avec $d=1$ et $K=1$
+
+```{r}
+?seq
+```
+
+
+```{r}
+x = seq(from=-4, to=6, by=1e-2)
+y1 = 0.6 * dnorm(x, mean=2, sd=0.5)
+y2 = 0.4 * dnorm(x, mean=-1, sd=1)
+y = 0.6 * dnorm(x, mean=2, sd=0.5) + 0.4 * dnorm(x, mean=-1, sd=1)
+
+par(pin=c(6, 4))
+plot(x, y1, type='l', col='blue', lwd=3)
+lines(x, y2, type='l', col='red', lwd=3)
+lines(x, y, type='l', col='black', lwd=3)
+```
+
+```{r}
+par(pin=c(6, 3))
+
+y = 0.6 * dnorm(x, mean=2, sd=0.5) + 0.4 * dnorm(x, mean=-1, sd=1)
+soft_assigment1 = 0.6 * dnorm(x, mean=2, sd=0.5) / y
+soft_assigment2 = 0.4 * dnorm(x, mean=-1, sd=1) / y
+
+plot(x, soft_assigment1, type='l', col='blue', lwd=3)
+lines(x, soft_assigment2, type='l', col='red', lwd=3)
+lines(x, y1, type='l', col='blue', lwd=3)
+lines(x, y2, type='l', col='red', lwd=3)
+```
+
+### 2. Estimation avec l'algorithme EM (Expectation Maximization)
+
+Dans le cas où les paramètres
+$$
+p=(p_1,p_2,\dots,p_K) \in [0, 1]^d, \quad \mu=(\mu_1,\mu_2,\dots,\mu_K) \in \mathbb R^{d\times K}, \quad v=(v_1,v_2,\dots,v_K) \in ]0, +\infty[^K
+$$
+sont inconnus et qu'on observe un échantillon $X_1,\dots,X_n$, on cherche à estimer les paramètres.
+Il n'y a pas de solution explicite pour ces estimateurs.
+La méthode classique pour cela est l'algorithme EM: il s'agit d'un algorithme itératif, qui cherche un maximiseur de la fonction de vraisemblance $L(p,\mu,v)$ dans ce modèle.
+Dans le cas particulier considéré ici, on calcule à l'étape E:
+$$ 
+t_{ik}^{(r)} = \frac{p_k^{(r)} \phi_{\mu_k^{(r)},v_k^{(r)}}(X_i)}
+{ \sum_{\ell=1}^K p_k^{(r)} \phi_{\mu_\ell^{(r)},v_\ell^{(r)}}(X_i)}
+$$
+et à l'étape M:
+$$ 
+p_k^{(r+1)}=\frac{1}{n} \sum_{i=1}^n t_{ik}^{(r)}, 
+\quad \mu_k^{(r+1)}=\frac{\sum_{i=1}^n t_{ik}^{(r)} X_i}{\sum_{i=1}^n t_{ik}^{(r)}},
+\quad
+v_k^{(r+1)}=\frac{\sum_{i=1}^n t_{ik}^{(r)} \| X_i - \mu_k^{(r+1)}\|^2}
+{d \sum_{i=1}^n t_{ik}^{(r)}}.
+$$
+
+On comprend l'algorithme assez facilement : $t_{ik}^{(r)}$ correspond à l'estimation à la $r$-ième itération de la probabilité que le point $i$ appartient au cluster $k$ (qu'on appelle "soft assignment"), alors que les autres formules correspondent à des estimations classiques de l'espérance et de la variance, mais pondérées par les soft assignments.
+
+On procède de la façon suivante : on se donne des paramètres initiaux $(p^{(0)}, \mu^{(0)}, v^{(0)}) \in [0,1]^K \times \mathbb R^K \times ]0,\infty[^K$ tel que $\sum_{k=1}^K p^{(0)}_k = 1$, et on répète les itérations données par les étapes E et M, jusqu'à ce que la fonction de vraisemblance ne varie presque plus. 
+En effet, une propriété remarquable de l'algorithme EM est qu'à chaque itération, la vraisemblance augmente:
+$$
+L(p^{(r+1)},\mu^{(r+1)},v^{(r+1)}) \ge L(p^{(r)},\mu^{(r)},v^{(r)}).
+$$
+
+Nous allons implémenter cet algorithme et visualiser son fonctionnement.
+
+**Questions**
+
+1. Ecrire une fonction qui calcule la log-vraisemblance du modèle, étant donné les données $X$ et les paramètres $p, \mu$ et $v$.
+
+**Réponse**
+
+La fonction de log-vraisemblance du modèle étant donné des données $X_1, \ldots, X_n$ i.i.d vaut
+$$
+\sum_{i=1}^n \log \Big( \sum_{k=1}^K p_k \phi_{\mu_k,v_k}(X_i) \Big)
+$$
+
+On rappelle que la densité de la loi $N(\mu, v I_d)$
+
+$$
+\phi_{\mu, v}(X_i) = \frac{1}{(2 \pi v)^{d / 2}} \exp \Big(- \frac{1}{2 v} \| X_i - \mu \|^2 \Big)
+$$
+
+```{r}
+normal_density = function(x, m, v) {
+  exp(-0.5 * sum((x - m)**2) / v) / (2 * pi * v) ** (d/2)
+}
+```
+
+
+```{r}
+log_lik = function(X, probabilities, means, variances) {
+  n = nrow(X)
+  d = ncol(X)
+  K = ncol(means)
+  L = 0
+  for(i in 1:n) {
+    Xi = X[i,]
+    s = 0
+    for(k in 1:K) {
+      p = probabilities[k]
+      m = means[,k]
+      v = variances[k]
+      s = s + p * normal_density(Xi, m, v)
+    }
+    L = L + log(s)
+  }
+  return(L)
+}
+```
+
+La valeur de la fonction de vraisemblance est maximale autour des "vrais" paramètres.
+
+```{r}
+log_lik(X, probabilities, means, variances)
+```
+
+En effet on observe ici que si on décale les paramètres, la vraisemblance devient plus petite
+```{r}
+log_lik(X, probabilities, means + 1, variances)
+```
+
+```{r}
+log_lik(X, probabilities, means, variances + 10)
+```
+
+
+## 2. Ecrire une fonction qui calcule les soft-assignments (Etape E).
+
+On utilise cette formule
+$$ 
+t_{ik}^{(r)} = \frac{p_k^{(r)} \phi_{\mu_k^{(r)},v_k^{(r)}}(X_i)}
+{ \sum_{\ell=1}^K p_k^{(r)} \phi_{\mu_\ell^{(r)},v_\ell^{(r)}}(X_i)}
+$$
+
+```{r}
+variances
+```
+
+
+```{r}
+e_step = function(X, probabilities, means, variances) {
+  n = nrow(X)
+  d = ncol(X)
+  K = ncol(means)
+  soft_assignements = matrix(nrow=n, ncol=K)
+  for(i in 1:n) {
+    Xi = X[i,]
+    soft_assignement = array(dim=K)
+    for(k in 1:K) {
+      p = probabilities[k]
+      m = means[,k]
+      v = variances[k]
+      soft_assignement[k] = p * normal_density(Xi, m, v)
+    }
+    soft_assignement = soft_assignement / sum(soft_assignement)
+    soft_assignements[i, ] = soft_assignement
+  }
+  return(soft_assignements)
+}
+```
+
+On vérifie que la fonction est correcte en l'appliquant aux paramètres utilisés pour la simulation
+
+```{r}
+entropy = function(p) {
+  return(-sum(p * log2(p)))
+}
+
+soft_assignements = e_step(X, probabilities, means, variances)
+soft_assignements_entropies = apply(soft_assignements, 1, entropy)
+```
+
+```{r}
+soft_assignements[soft_assignements_entropies > 0.9, ]
+```
+
+
+```{r}
+uncertain_points_idx = (1:n)[soft_assignements_entropies > 0.9]
+soft_assignements[uncertain_points_idx,]
+```
+
+On affiche les points qui correspondent à des soft-assignements "tangents" i.e. des points dont l'appartement à
+un cluster ou à un autre n'est pas très claire
+
+```{r}
+par(pin=c(6, 4))
+plot(X, col=clusters)
+points(X[uncertain_points_idx, 1], X[uncertain_points_idx, 2], lwd=15, col='orange')
+```
+
+## 3. Ecrire une fonction qui applique l'étape M, en utilisant les formules données au dessus.
+
+**Réponse**
+
+On applique les formules d'au dessus, où on multiplie au numérateur et dénominateur $1/n$:
+$$ 
+p_k^{(r+1)}=\frac{1}{n} \sum_{i=1}^n t_{ik}^{(r)}, 
+\quad \mu_k^{(r+1)} = \frac{\frac 1n \sum_{i=1}^n t_{ik}^{(r)} X_i}{\frac 1n  \sum_{i=1}^n t_{ik}^{(r)}},
+\quad
+v_k^{(r+1)}=\frac{\frac 1n \sum_{i=1}^n t_{ik}^{(r)} \| X_i - \mu_k^{(r+1)}\|^2}
+{\frac dn \sum_{i=1}^n t_{ik}^{(r)}}
+$$
+qu'on peut donc réecrire sous la forme
+
+$$ 
+p_k^{(r+1)}=\frac{1}{n} \sum_{i=1}^n t_{ik}^{(r)}, 
+\quad \mu_k^{(r+1)} = \frac{\frac 1n \sum_{i=1}^n t_{ik}^{(r)} X_i}{p_k^{(r+1)}},
+\quad
+v_k^{(r+1)}=\frac{\frac 1n \sum_{i=1}^n t_{ik}^{(r)} \| X_i - \mu_k^{(r+1)}\|^2}
+{d p_k^{(r+1)}}
+$$
+
+**Remarque.** L'exposant $p_k^{(r)}$ indique le fait qu'on utilise la valeur du paramètre $p_k$ à l'itération $r$ de l'algorithme EM.
+Cet indice n'a pas d'utilité  quand on implémente l'algorithme. On ne va pas stocker toutes les valeurs des paramètres pour toutes les itérations $r = 1, 2, \ldots,$. On ne va conserver que les valeurs les plus récentes
+
+```{r}
+m_step = function(X, soft_assignements) {
+  d = ncol(X)
+  K = ncol(soft_assignements)
+  # On stocké les valeurs des soft-assignemnts de chaque point de données dans 
+  # les lignes  de la matrice.
+  # Dont il suffit de calculer la moyenne des colonnes pour obtenir  les valeurs des $p_k$
+  probabilities = colMeans(soft_assignements)
+  means = matrix(nrow=d, ncol=K)
+  variances = 1:K
+  
+  for(k in 1:K) {
+    # On recupere le vecteurs qui contient [t_1k, t_2k, ...] 
+    # (les soft-assignements pour le cluster k)
+    soft_k = soft_assignements[, k]
+    prob_k =  probabilities[k]
+    # On calcule les mu_k
+    mu_k = colMeans(X * soft_k) / prob_k
+    means[, k] = mu_k
+    # On calcule les v_k
+    # 1. On commence par calculer les differences entre X_i et \mu_k
+    X_minus_mu_k = t(apply(X, 1, (function(row) row - mu_k)))
+    # 2. Calcul des normes aux carres de ces differences
+    sqnorm_X_minus_mu_k = apply((X_minus_mu_k ** 2), 1, sum)
+    # 3. Calcul du numerateur de la formule du calcul de la variance
+    variance_numerator = mean(sqnorm_X_minus_mu_k * soft_k)
+    # Calcul de l'estimateur de la variance
+    var_k = variance_numerator / (d * prob_k)
+    variances[k] = var_k
+  }
+  return(list(probabilities=probabilities, means=means, variances=variances))
+}
+```
+
+```{r}
+truc = m_step(X, soft_assignements)
+truc
+```
+
+
+## 4. Mise en oeuvre de l'algorithme
+
+Mettre en oeuvre l'algorithme en utilisant les fonctions définies au dessus: on fera une 
+boucle `for` qui effectue 100 itérations, et qui calcule à chaque étape la valeur de la 
+vraisemblance après application des étapes E et M. 
+On initialisera $(p^{(0)},\mu^{(0)},v^{(0)})$ au hasard (en faisant attention de simuler $p$ dans le simplexe, en utilisant par exemple une loi de Dirichlet). 
+Représentez l'évolution de la fonction de vraisemblance le long des itérations (cela devrait donc être croissant...)
+
+
+```{r}
+# Initialisation des paramètres
+K = 10
+d = 2
+probabilities = rep(1 / K, K)
+means = matrix(rnorm(d * K), nrow=d, ncol=K)
+variances = rep(1, K)
+
+# Boucle EM
+max_iter = 10
+for (n_iter in 1:max_iter) {
+  L = log_lik(X, probabilities, means, variances)
+  print(L)
+  soft_assignments = e_step(X, probabilities, means, variances)
+  cluster_predict = max.col(soft_assignments)
+  par(pin=c(6, 4))
+  plot(X, col=cluster_predict)
+  truc = m_step(X, soft_assignments)
+  probabilities = truc$probabilities
+  means = truc$means
+  variances = truc$variances
+}
+
+```
+
+```{r}
+par(pin=c(6, 4))
+plot(X, col=clusters)
+```
+
+## 5. Visualisation de la convergence 
+
+Visualiser les itérations de l'algorithme EM en faisant un scatter plot après chaque itérations (ou toutes les 10 itérations) par exemple. Conclure.
+
+

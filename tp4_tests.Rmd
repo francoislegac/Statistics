@@ -1,0 +1,173 @@
+---
+title: "Quelques tests classiques"
+output: html_notebook
+---
+
+### 1. $Z$-test
+
+Imaginons un exemple ou on a un échantillon de souris avec autant de males que de femelles.
+Certaines souris ont le cancer : 160 en tout, donc 95 males et 65 femelles.
+On veut répondre à la question suivante : est-ce que le cancer affecte plus les males que les femelles ?
+Pour répondre à cette question, on la reformule sous la forme :
+
+  > La proportion de males qui ont le cancer (notée $p_o$) est elle égale à la proportion de mâles globale (notée $p$) ?
+
+Pour cela on utilise le formalisme des tests: on dit qu'on consière le problème de test d'hypothèses
+
+$$
+H_0 : p_o = p \quad \text{ contre } \quad H_1 : p_o \neq p
+$$
+o??
+
+- $p_o$ est la proportion observée (attention c'est différent de $\bar X_n$) : probabilité qu'une souris mâle ait le cancer
+- $p$ est la proportion contre laquelle on veut tester, **égale ici à $0.5$** (il y a autant de mâles que de femelles chez les souris ou chez une autre espèce).
+
+### Rappel sur le $Z$-test
+
+On peut utiliser un $Z$-test pour une proportion basée sur la statistique de test
+
+$$
+Z = \frac{\hat p - p}{\sqrt{p (1 - p) / n}}
+$$
+où
+
+- $\hat p$ est la proportion estimée
+- $p$ est la proporition contre laquelle on veut tester
+- $n$ est la taille de l'échantillon.
+
+On rappelle que $\hat p$ est une moyenne de Bernoulli de paramètre $p_o$. 
+Donc, **sous l'hypothèse $H_0$**, on a $p_o = p$, et donc le TCL implique que
+
+$$
+Z = \frac{\hat p - p}{\sqrt{p (1 - p) / n}} \rightarrow N(0, 1) \quad \text{en loi quand } n \rightarrow +\infty
+$$
+de sorte que 
+$$
+\mathbb P\Bigg [ \Big| \frac{\hat p - p}{\sqrt{p (1 - p) / n}} \Big| \geq q \Bigg]  \rightarrow \mathbb P[ |N(0, 1)| \geq q]
+$$
+et donc si on veut que $\mathbb P[ |N(0, 1)| \leq q] = \alpha$, on choisit $q = \Phi^{-1}(1 - \alpha / 2)$ où $\Phi^{-1}$ est la fonction quantile de la loi $N(0, 1)$. On cherche alors à contrôler l'erreur de première espèce, ou erreur de type I, définie par
+
+$$
+\mathbb P_{H_0 \text{ est vraie}} ( \text{rejetter } H_0).
+$$
+On doit se débrouiller dans la construction du test pour que cette erreur soit égale ou plus petite qu'un certain niveau $\alpha \in (0, 1)$, appelée le niveau du test (par exemple $\alpha = 5\% = 0.05$). Si on choisit le test de région de rejet
+$$
+ \Big| \frac{\hat p - p}{\sqrt{p (1 - p) / n}} \Big| \geq \Phi^{-1}(1 - \alpha / 2)
+$$
+on obtient un test dont l'erreur de première espèce converge vers $\alpha$ avec $n$ grand.
+
+#### Question
+
+- Ecrire une fonction qui calcule la statistique de test et qui renvoie la decision du test (accepte ou rejette), étant donné un niveau de confiance $\alpha \in (0, 1)$, et les valeurs de $\hat p$, $p$ et $n$
+- Appliquer la fonction au problème des souris, pour diffèrentes valeurs de $\alpha$ (entre $0$ et $1$). Commentez.
+- Calculer aussi la p-valeur de ce test, et l'appliquer sur cet exemple. Calculez un intervalle de confiance asymptotique. Conclure.
+
+```{r}
+z.test1 = function(p_est, p, n, alpha) {
+  #
+  #
+  #
+  z = (p_est - p) / sqrt(p * (1 - p) / n)
+  decision = abs(z) >= qnorm(1 - alpha / 2)
+  return(list(statistic=z, decision=decision))
+}
+
+p_est = 95 / 160
+p = 0.5
+n = 160
+
+z.test1(p_est, p, n, 0.05)
+```
+
+Au niveau $\alpha = 0.05$, le test rejette l'hypoth??se $H_0$.
+Maintenant, regardons ce que le m??me test, mais ?? des niveaux $\alpha$ diff??rents, aurait d??cid??. 
+On relance le m??me test, mais pour plusieurs valeurs de $\alpha$ dans $[0, 1]$.
+
+```{r}
+alphas = seq(0, 1, by=1 / 200)
+decisions = alphas
+
+for(i in 1:length(alphas)) {
+  alpha = alphas[i]
+  res = z.test1(p_est, p, n, alpha)
+  decisions[i] = res$decision
+}
+
+plot(alphas, decisions)
+```
+
+On voit bien que le test rejette tout le temps $H_0$, sauf pour des valeurs toutes petites de $\alpha$. La valeur de $\alpha$ qui fait changer d'avis le test s'appelle la $p$-valeur : en dessous de cette valeur, un test accepte $H_0$ (car il est "oblig??" d'accepter $H_0$, l'erreur de type I ??tant tr??s 
+petite), tandis qu'au del?? ce cette valeur, il peut rejetter l'hypoth??se (car il a plus de "mou" sur l'erreur de type I). 
+
+Maintenant utilisons plut??t la $p$-valeur. 
+La $p$-valeur est la valeur de $\alpha$ qui fait changer le test d'avis, c'est-??-dire le $\alpha$ tel que
+$$
+\Big| \frac{\hat p - p}{\sqrt{p (1 - p) / n}} \Big| = \Phi^{-1}(1 - \alpha / 2)
+$$
+donc
+$$
+\alpha = 2 \bigg( 1 - \Phi\Big( \Big| \frac{\hat p - p}{\sqrt{p (1 - p) / n}} \Big| \Big) \bigg)
+$$
+```{r}
+z.test = function(p_est, p, n) {
+  z = (p_est - p) / sqrt(p * (1 - p) / n)
+  p.value = 2 * (1 - pnorm(abs(z)))
+  return(list(statistic=z, p.value=p.value))
+}
+z.test(p_est, p, n)
+```
+
+La $p$-valeur est ??gale ?? $0.0177 = 1.77\%$. Le test n'accepte $H_0$ que pour un niveau plus petit que $1.77\%$, ce qui est une valeur petite.
+On consid??re alors que le test rejette fortement l'hypoth??se $H_0$: la proportion est vraiment diff??rente de $0.5$.
+
+### 2. Test du $\chi_2$ d'ad??quation ?? une loi discr??te
+
+Un autre test se base sur la statistique du $\chi^2$. En effet si on observe des valeurs discr??tes 
+$y_1, \ldots, y_n$ ?? valeurs dans $1, \ldots, K$, on peut tester si ces observations sont distribut??es selon une loi de probabilit??s $p = (p_{1}, \ldots, p_{K})$ sur $\{1, \ldots, K \}$.
+On cherche donc ?? faire un test d'ad??quation de la distribution $p_o = (p_{o, 1}, \ldots, p_{o, K})$ des observations ?? la loi $p$, c'est-??-dire un test d'hypoth??ses
+$$
+H_0 : p_o = p \quad \text{ contre } \quad H_1 : p_o \neq p
+$$
+On peut consid??rer pour cela un test bas?? sur la statistique du $\chi^2$ donn??e par
+$$
+\sum_{k=1}^K \frac{(n \hat p_k - n p_k)^2}{n p_{k}},
+$$
+o?? $\hat p_k = \frac 1n \sum_{i=1}^n \mathbf 1_{y_i = k}$ est la proportion d'observations ??gales ?? $k$.
+On peut montrer (th??or??me de Cochran) que **sous l'hypoth??se $H_0$**, cette statistique converge vers la loi $\chi^2(K - 1)$ (chi-deux ?? $K-1$ degr??s de libert??s), lorsque $n$ est grand.
+
+#### Questions
+
+- Utilisez `prop.test` pour faire ce test sur l'exemple pr??c??dant. Expliquez tout ce qu'affiche cette fonction, et conclure.
+
+```{r}
+prop.test(x = 95, n=160, p=0.5, correct=FALSE)
+```
+
+- Reconstruire ?? la main ce test : calculer la statistique du test, la $p$-valeur et l'intervalle de confiance
+
+Ici $K = 2$, $\hat p_1 = 95 / 160$ et $\hat p_2 = 1 - 95 / 160$ et $n = 160$
+
+```{r}
+p1_est = 65 / 160
+p2_est = 1 - 65 / 160
+p1 = 0.5
+p2 = 0.5
+n = 160
+
+statistic = (n * p1_est - n * p1)^2 / (n * p1) + (n * p2_est - n * p2)^2 / (n * p2)
+statistic
+```
+
+On retrouve bien exactement la m??me statistique que R (la valeur de `X-squared`).
+
+L'intervalle de confiance est bas?? sur la statistique du $Z$-test d'au dessus:
+
+```{r}
+c(p1_est - sqrt(p1_est * (1 - p1_est) / n) * qnorm(1 - 0.05 / 2), p1_est + sqrt(p1_est * (1 - p1_est) / n) * qnorm(1 - 0.05 / 2))
+p1_est
+```
+
+**Question**
+
+- Refaire le test pour un ??chantillon simul?? de loi de Poisson d'intensit?? $\lambda = 1$. Tester contre la loi de Poisson d'intensit?? $1$, puis tester contre un loi de Poisson avec un intensit?? un peu plus grande.
+

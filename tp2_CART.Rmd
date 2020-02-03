@@ -1,0 +1,187 @@
+---
+title: "CART: Classification and Regression Trees"
+output: html_notebook
+---
+
+# 1. Introduction
+
+Ce notebook traite des méthodes arborescentes pour la régression et la classification. Ils impliquent de stratifier ou de segmenter l'espace des variables en un certain nombre de régions plus simples. Pour faire une prédiction pour une observation donnée, on cherche alors la région de l'espace dans laquelle le point tombe, et on utilise un vote majoritaire (en classification) ou une moyenne (en régression) dans cette région d'appartenance. Avec ce genre de méthode, les règles de division utilisées pour segmenter l'espace prédicteur sont des arbres, d'où le nom de méthodes d'arbres de décision.
+
+Les méthodes arborescentes sont simples et utiles pour l'interprétation, mais elles ne sont généralement pas compétitives avec les meilleures méthodes d'apprentissage supervisé en termes de précision de prédiction. En pratique, certaines méthodes d'apprentissage combinent plutôt des arbres, comme par exemple la méthode des forêts aléatoires, ou l'algorithme de gradient boosting. Dans ce notebook nous nous concentrons pour l'instant sur les arbres simples.
+
+Pour la classification, les méthodes d'arbres utilisent des mesures de "désordre" ou d'"impureté" d'une distribution.
+
+
+# 2. Jeu de données `iris`
+
+## Question
+
+Installez et chargez les librairies `rpart` et `GGally`. Afficher le jeux de données `iris` et son `summary`.
+Faire un scatter plot du jeux de donnée, avec les espèces d'iris données par la couleur des points, via la fonction `ggscatmat`.
+
+## Réponse
+
+```{r}
+library(rpart)
+
+iris
+n = nrow(iris)
+summary(iris)
+```
+
+```{r}
+library(GGally)
+
+ggscatmat(data=iris, columns = 1:4, color="Species")
+```
+# 3. CART sur le jeu de données `iris`
+
+## Question
+
+Installez la librarie `rpart` et `rpart.plot` et entrainez un arbre de classification sur ce jeu de données avec la fonction `rpart`.
+Affichez l'arbre de classification avec la fonction `rpart.
+
+## Réponse
+
+```{r}
+library(rpart)
+library(rpart.plot)
+
+tree = rpart(Species~., data = iris, method = "class")
+rpart.plot(tree, type=1)
+tree
+```
+
+# 4. Utilisation de CART sur un autre jeu de données
+
+## Question 
+
+Téléchargez avec la fonction `read.csv` le jeu de données suivant : `http://www-bcf.usc.edu/~gareth/ISL/Heart.csv`.
+Affichez le jeu de données, faire son summary. Construisez un arbre CART pour prédire la variable binaire `AHD` et affichez le, et vérifiez que vous comprenez bien ce que vous observez.
+
+## Solution
+
+```{r}
+# On commence par bien definir le type des colonnes
+types = c('numeric', 'numeric', 'factor', 'factor', 'numeric', 'numeric', 
+          'factor', 'factor',  'numeric', 'factor', 'numeric', 
+          'factor', 'factor', 'factor', 'factor')
+
+heart = read.csv('heart.csv', skipNul=TRUE, colClasses = types)
+
+# Et on enleve la premiere colonne qui contient le numero de la ligne (pas informatif)
+kept = c("Age", "Sex", "ChestPain", "RestBP", "Chol", 
+         "Fbs", "RestECG", "MaxHR", "ExAng",  "Oldpeak",
+         "Slope", "Ca", "Thal", "AHD")
+heart = heart[kept]
+summary(heart)
+```
+
+```{r}
+tree = rpart(AHD~., data = Heart, method = "class")
+rpart.plot(tree, type=1)
+show(tree)
+```
+
+Nous allons maintenant comprendre comment cet arbre de classification a été construit.
+
+# 5. Fonctions de "désordre" ou d'"impureté": Entropie, Gini
+
+L'entropie d'un vecteur de probabilités $p = (p_1, \ldots p_C)$ (un vecteur tel que $p_c \geq 0$ pour $c=1, \ldots, C$ et $\sum_{c=1}^C p_c=1$ est donnée par
+$$
+H(p) = - \sum_{c=1}^C p_c \log(p_c)
+$$
+et l'indice de Gini est donné par
+$$
+G(p) = \sum_{c=1}^C p_c(1 - p_c) = 1 - \sum_{c=1}^C p_c^2
+$$
+Ces mesures d'impureté sont maximales autour de la loi uniforme, et minimales pour des lois proches d'une masse de Dirac.
+
+## Question
+
+Ecrire deux fonctions qui calculent l'entropie et l'indice de Gini pour deux vecteurs de probabilités.
+Dessiner la valeur de cette fonction pour des vecteurs de dimension $2$ de la forme $(p, 1-p)$ pour $p$ dans une grille régulière de
+l'intervalle de $[0, 1]$.
+
+## Réponse
+
+
+```{r}
+entropy = function(p) {
+  return(-sum(p * log2(p)))
+}
+
+gini = function(p) {
+  return(sum(p * (1 - p)))
+}
+
+probas = seq(1/100, 1, by=1/100)
+entropies = probas
+ginis = probas
+
+for(i in 1:length(probas)) {
+  proba = probas[i]
+  entropies[i] = entropy(c(proba, 1 - proba))
+  ginis[i] = gini(c(proba, 1 - proba))
+}
+
+par(mfrow=c(1, 2))
+plot(probas, entropies, type="l", main="Entropie")
+plot(probas, ginis, type="l", main="Gini")
+```
+
+# 6. Fonction de gain d'information
+
+Pour trouver un bon découpage de l'espace, CART compare des quantités appelées gain d'information (basés sur Gini ou sur l'entropie).
+Supposons que l'espace de variables $E$ est découpé en deux morceaux $E_1$ et $E_2$, sur lesquels nous calculons les fréquences des classes $p$, $p_1$ et $p_2$.
+Si $I$ est une fonction d'impureté (donnée par $H$ ou $G$), on calcule alors le gain de la façon suivante:
+$$
+\text{IG} = I(p) - \frac {n_1}{n} I(p_1) - \frac {n_2}{n} I(p_2)
+$$
+où $n_1$ et $n_2$ sont respectivement le nombre d'éléments de $E_1$ et $E_2$, et $n$ le nombre d'éléments dans $E$.
+Dans CART, les ensembles $E_1$ et $E_2$ sont simplement d'un ensemble $E$ sont simplement obtenus en découpant, selon une variable $j$, avec un seuil $t$.
+
+## Question
+
+Afficher le gain d'information avec l'indice de Gini et l'entropie pour différentes valeurs de seuil (par exemple toutes les valeurs de cette variable) pour la variable `Petal.Length` du jeu de données `iris`. En déduire les meilleures valeurs de seuil pour Gini et l'entropie pour cette variable.
+Vous devriez normalement obtenir la même chose qu'avec la méthode `pcart`, pour un certain choix d'indice (Gini ou entropie). En déduire l'indice qui a été utilisé par `pcart`.
+
+## Réponse
+
+```{r}
+n_cuts = n
+test_cuts = as.numeric(quantile(iris$Petal.Length, probs=seq(0, 1, by=1/n_cuts)))
+y = as.numeric(iris$Species)
+x = as.numeric(iris$Petal.Length)
+IG_gini = array(dim=length(test_cuts))
+IG_entropy = array(dim=length(test_cuts))
+
+i = 0
+for (t in test_cuts) {
+  i = i + 1
+  parent_freqs = as.numeric(table(y) / n)
+  filter = x <= t
+  left_freqs = as.numeric(prop.table(table(y[filter])))
+  right_freqs = as.numeric(prop.table(table(y[!filter])))
+  n_left = sum(filter)
+  n_right = sum(!filter)
+  IG_gini[i] = gini(y) - (n_left / n * gini(left_freqs) + n_right / n * gini(right_freqs))
+  IG_entropy[i] = entropy(y) - (n_left / n * entropy(left_freqs) + n_right / n * entropy(right_freqs))
+}
+par(mfrow=c(1, 2))
+plot(test_cuts, IG_gini, main='Information gain with gini', type='l', lwd=2, 
+     xlab='Cut',
+     ylab='Information gain with Gini')
+plot(test_cuts, IG_entropy, main='Information gain with entropy', type='l', lwd=2, 
+     xlab='Cut',
+     ylab='Information gain with Entropy')
+```
+
+On retrouve bien de que l'on avait obtenu via la procédure `pcart`: la meilleure coupure pour la 
+feature `Petal.length` est bien environ égale à 2.5
+
+```{r}
+test_cuts[IG_entropy == max(IG_entropy)]
+```
+
+

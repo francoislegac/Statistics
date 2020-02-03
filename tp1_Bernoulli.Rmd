@@ -1,0 +1,266 @@
+---
+title: "TP1 - Modèle de Bernoulli"
+output: html_notebook
+---
+
+## Introduction
+
+Etudiez comment faire les choses suivantes avec des raccourcis clavier :
+
+- Ajouter un chunk de code R
+- Executer un chunk
+
+## Question 1
+
+Ecrire un code qui fabrique un $n$-échantillon de la loi de Bernoulli $\mathcal B(\theta)$ et calcule la moyenne empirique associée $\bar X$. On utilisera la fonction `runif` ou bien la fonction `rbinom`. 
+On prendra $n=100$ et $\theta=0.6$ pour tester le code.
+
+### Réponse
+
+```{r}
+n = 100
+theta = 0.6
+x = rbinom(n=n, size=1, prob=theta)
+x
+```
+
+## Question 2
+
+Compter le nombre de 0 et de 1 avec la fonction `table` et afficher un barplot avec la fonction `barplot`.
+
+### Réponse
+
+```{r}
+table(x)
+barplot(table(x))
+```
+
+## Question 3
+
+On s'intéresse à l'estimateur de $\theta$ par la moyenne empirique $\bar X_n = \frac 1n \sum_{i=1}^n X_i$.
+Pour étudier l'estimateur $\bar X_n$ on répète l'expérience $K$ fois ($K=1000$ par exemple) en simulant $K$ fois cet échantillon, pour obtenir $X_1^{(k)}, \ldots, X_n^{(k)}$ pour $k=1, \ldots, K$.
+Ecrire un code qui fabrique une matrice avec $n$ lignes et $K$ colonnes dont les éléments sont des réalisations 
+de variables aléatoires de loi $\mathcal B(\theta)$ et calcule les $K$ moyennnes empiriques $\bar X_n^{(1)}, \dots, \bar X_n^{(K)}$ associées aux colonnes, données par
+$$
+\bar X_n^{(k)} = \frac 1n \sum_{i=1}^n X_i^{(k)}.
+$$
+On utilisera les fonctions `matrix` et `colMeans`. 
+Calculer $R_n(\theta) = \frac{1}{K} \sum_{k=1}^K (\bar X_n^{(k)} - \theta)^2$.
+Quel est le rapport entre $R_n(\theta)$ et le risque quadratique "théorique" $R(\bar X_n; \theta)$ de l'estimateur $\bar X_n$ au point $\theta$ ?
+
+### Réponse
+
+Commençons par rappeler que le risque quadratique "théorique" d'un estimateur $\hat \theta_n$ d'un paramètre $\theta \in \mathbb R$ est donnné par
+$$
+R(\hat \theta_n; \theta) = \mathbb E_\theta[ (\hat \theta_n - \theta)^2 ].
+$$
+Ici on a $X_1, \ldots, X_n$ i.i.d de loi de Bernoulli de paramètre $\theta$, donc $\mathbb E_\theta[X_1] = \theta$ et 
+$\text{var}_\theta(X_1) = \mathbb E_\theta(X_1^2) - (\mathbb E_\theta X_1)^2 = \theta - \theta^2 = \theta (1 - \theta)$.
+Donc on a que
+$$
+R(\hat \theta_n; \theta) = \mathbb E_\theta[ (\hat \theta_n - \theta)^2 ] = \mathbb E[ (\bar X_n - \mathbb E(X_1))^2 ] = \mathbb E[ (\bar X_n - \mathbb E( \bar X_n))^2 ] = \text{var}( \bar X_n) = \frac{\text{var} (X_1)}{n} = \frac{\theta(1 - \theta)}{n}
+$$
+Comme les $K$ échantillons sont indépendants, on s'attend, d'après la loi des grands nombres, à ce que le risque empirique $R_n(\theta)$ soit proche de $R(\hat \theta_n; \theta)$.
+
+```{r}
+# On commence par creer une matrice de taille (n, K) qui contient des realisations de variables de 
+# Bernoulli de parametre theta.
+n = 100
+K = 1000
+theta = 0.6
+x = rbinom(n = n * K, size=1, prob = theta)
+X = matrix(data=x, nrow=n, ncol=K)
+Xbar = colMeans(X)
+plot(Xbar)
+abline(theta, 0, col='red', lwd=5)
+```
+On voit sur ce graphique les différentes valeurs des estimateurs $X_n^{(1)}, \ldots, X_n^{(K)}$, qui sont effectivement autour de la vraie valeur $\theta = 0.6$. Si on choisit $\theta$ plus proche de $0$ ou de $1$, la variabilité des estimateurs est moindre, puisque dans de cas $\text{var}_\theta(X_1) = \theta(1 - \theta) \approx 0$. 
+
+Calculons maintenant $R_n(\theta)$. On a simulé $\bar X_n^{(1)}, \ldots, \bar X_n^{(K)}$ dans la vecteur `Xbar`, les estimateurs de $\theta$ sur les $K$ échantillons de taille $n$. On calcule
+$$
+\frac{1}{K} \sum_{k=1}^K (\bar X_n^{(k)} - \theta)^2
+$$
+
+avec le code suivant:
+```{r}
+mean((Xbar - theta)^2)
+```
+## Question 4
+
+Pour chaque $\theta \in [0,1]$ multiple de $1/100$, reprendre la question précédente et 
+sauvegarder la valeur de $R(\theta)$ (dans un vecteur).
+Faire un graphique pour comparer les fonctions $\theta \mapsto R_n(\theta)$ et $\theta \mapsto R_(\bar X_n; \theta)$.
+
+### Réponse
+
+On calcule donc ici
+$$
+\frac{1}{K} \sum_{k=1}^K (\bar X_n^{(k)} - \theta)^2
+$$
+et on va illustrer le fait que ces quantités sont proches de
+
+$$
+R(\bar X_n, \theta) = \frac{\theta(1 - \theta)}{n}
+$$
+
+pour $\theta = 0, \frac {1}{100}, \frac {1}{100}, \ldots, 1$.
+
+```{r}
+n = 100
+K = 1000
+thetas = seq(from=0, to=1, by=1/100)
+risks = thetas
+
+for (i in 1:length(thetas)) {
+  theta = thetas[i]
+  X = matrix(rbinom(n = n * K, size=1, prob = theta), nrow=n, ncol=K)
+  Xbar = colMeans(X)
+  risks[i] = mean((Xbar - theta)^2)
+}
+plot(thetas, risks)
+lines(thetas, thetas* (1 - thetas) / n, col="red", lwd=4)
+legend("topright", c("Simulations", "Valeur théorique"), pch=c(16, 16), 
+       col=c('black', 'red'))
+```
+## Question 5
+
+On veut construire un intervale $I(n, \alpha)$ qui contient $\theta$ avec une probabilité plus grande que $1 - \alpha$ ou $\alpha \in ]0, 1[$. C'est à dire qu'on cherche un intervalle $I(n, \alpha)$ (qui va dépendre d'un échantillon $X_1, \ldots, X_n$), tel que
+$$
+\mathbb P_\theta [ \theta \in I(n, \alpha)] \geq 1 - \alpha \quad \text{pour tout} \quad \theta \in ]0, 1[
+$$
+Cela s'appelle un **intervalle de confiance** pour $\theta$ au niveau $1 - \alpha$. On choisit typiquement $\alpha = 0.05$ ou $\alpha = 0.10$. Soit $\alpha \in ]0,1]$. On rappelle que l'intervalle
+$$
+I(n, \alpha) = \big] \bar X_n - \rho(n, \alpha), \bar X_n + \rho(n,\alpha) \big[
+$$
+où 
+$$
+\rho(n,\alpha)= \frac{1}{2\sqrt{n \alpha}}
+$$
+est un intervalle de confiance pour $\theta$ de niveau de confiance $1-\alpha$. Cela se montre avec l'inégalité de Bienaymé Tchebychev. On souhaite "vérifier" cette minoration par simulation: pour chaque $\theta \in [0,1]$ multiple de $1/100$ calculer
+
+$$
+Pc(\theta) = \frac{1}{K} \sum_{k=1}^K \mathbf 1_{|\bar X_n^{(k)} -\theta|< \rho(n,\alpha)} \approx \mathbb E_\theta [ \mathbf 1_{|\bar X_n^{(1)} -\theta|< \rho(n,\alpha)} ] = \mathbb P_\theta[|\bar X_n^{(1)} -\theta|< \rho(n,\alpha)]
+$$
+où l'approximation est encore une fois donnée par la loi des grands nombres, et on veut vérifier que $Pc(\theta) \geq 1 - \alpha$. On va représenter sur un graphique la fonction $\theta \to Pc(\theta)$ et la droite horizontale d'ordonnée $1 - \alpha$. On prendra $\alpha = 20\%$ puis $\alpha = 5\%$. On s'attend à ce que cette fonction soit toujours au dessus de $1 - \alpha$.
+
+### Réponse
+
+```{r}
+n = 100
+K = 100
+alpha = 0.05
+thetas = seq(from=0, to=1, by=1/100)
+Pc = thetas
+rho = 1 / (2 * sqrt(n * alpha))
+for (i in 1:length(thetas)) {
+  theta = thetas[i]
+  X = matrix(rbinom(n = n * K, size=1, prob = theta), nrow=n, ncol=K)
+  Xbar = colMeans(X)
+  Pc[i] = mean(abs(Xbar - theta) < rho)
+}
+plot(thetas, Pc, ylim=c(0.7, 1), main = paste0("alpha=",alpha))
+abline(1 - alpha, 0, col='red', lw=5)
+legend("bottomright", c("Pc", "1 - alpha"), pch=c(16, 16), col=c('black', 'red'))
+
+alpha = 0.2
+thetas = seq(from=0, to=1, by=1/100)
+Pc = thetas
+rho = 1 / (2 * sqrt(n * alpha))
+for (i in 1:length(thetas)) {
+  theta = thetas[i]
+  X = matrix(rbinom(n = n * K, size=1, prob = theta), nrow=n, ncol=K)
+  Xbar = colMeans(X)
+  Pc[i] = mean(abs(Xbar - theta) < rho)
+}
+plot(thetas, Pc, ylim=c(0.7, 1), main = paste0("alpha=",alpha))
+abline(1 - alpha, 0, col='red', lw=5)
+legend("bottomright", c("Pc", "1 - alpha"), pch=c(16, 16), col=c('black', 'red'))
+```
+
+On observe que la propriété de couverture est respectée : toutes les probabilites de couverture sont estimées à 1, qui est plus grand que $0.95$ quand on choisit $\alpha = 0.05$. Si on augmente $\alpha = 0.2$ , on observe toujours que les probabilites de couverture simulées sont plus grandes que 0.8, mais plus toutes egales à 1.
+On dit cet intervalle est très conservateur : il vient de l'inégalité de B-T qui est une inégalite peu précise.
+
+## Question 6.1
+
+On peut montrer que l'intervalle
+$$
+J(n, \alpha)=\Bigl] \frac{\bar X}{1+1/(n\alpha)} +\frac{1}{2(n\alpha+1)} \pm \tilde\rho(n,\alpha,\bar X) \Bigr[,
+$$
+où
+$$ 
+\tilde \rho(n,\alpha,t) = \rho(n,\alpha) \frac{\sqrt{1/(n\alpha)+4t(1-t)}}{1+1/(n\alpha)}
+$$
+est aussi un intervalle de confiance pour $\theta$ de niveau de confiance $1-\alpha$.
+Reprendre la question précédente pour $J(n,\alpha)$. 
+
+### Réponse
+
+On regarde quand $\theta \in J(n, \alpha)$, ce qui est équivalent à 
+$$
+\Bigg| \frac{\bar X}{1+1/(n\alpha)} +\frac{1}{2(n\alpha+1)} - \theta \Bigg| \leq \tilde\rho(n,\alpha,\bar X) \quad \quad \quad (\text{C})
+$$
+On simule les probabilités de couverture de l'intervalle de confiance $J(n,\alpha)$.
+
+```{r}
+n = 100
+K = 100
+alpha = 0.1
+thetas = seq(from=0, to=1, by=1/100)
+Pc = thetas
+
+for (i in 1:length(thetas)) {
+  theta = thetas[i]
+  X = matrix(rbinom(n = n * K, size=1, prob = theta), nrow=n, ncol=K)
+  Xbar = colMeans(X)
+
+  # On calcule \tilde \rho
+  rho = 1 / (2 * sqrt(n * alpha)) * sqrt(1 / (n * alpha) + 4 * Xbar * (1 - Xbar)) / (1 + 1 / (n * alpha))
+
+  Pc[i] = mean(abs(Xbar / (1 + 1 / (n * alpha)) + 1 / (2 * (n * alpha + 1)) - theta) <= rho)
+}
+plot(thetas, Pc, ylim=c(0.7, 1))
+abline(1 - alpha, 0, col='red', lw=5)
+legend("bottomright", c("Pc", "1 - alpha"), pch=c(16, 16), col=c('black', 'red'))
+```
+
+On a bien que la probabilite de couverture de cet intervalle de confiance est plus grande que $1 - \alpha$.
+
+## Question 6.2
+
+On calculera aussi pour chaque $\theta \in [0,1]$ multiple de $1/100$ le rayon moyen
+$$
+S(\theta)= \frac{1}{K} \sum_{k=1}^K \tilde\rho(n, \alpha, \bar X_k)
+$$
+et on représentera graphiquement $\theta \mapsto S(\theta)$ pour le comparer à la constante $\rho(n,\alpha)$.
+
+### Réponse
+
+Affichons les rayons moyens des deux intervalles $I_n$ et $J_n$ pour différentes valeurs de $\theta$
+
+```{r}
+n = 100
+K = 100
+alpha = 0.1
+thetas = seq(from=0, to=1, by=1/100)
+
+# On utilise le rho qui est obtenu via l'inegalite de B-T
+rho_I = 1 / (2 * sqrt(n * alpha))
+rho_J = thetas
+
+for (i in 1:length(thetas)) {
+  theta = thetas[i]
+  X = matrix(rbinom(n = n * K, size=1, prob = theta), nrow=n, ncol=K)
+  Xbar = colMeans(X)
+
+  # On calcule \tilde \rho
+  rho_J[i] = mean(1 / (2 * sqrt(n * alpha)) * sqrt(1 / (n * alpha) + 4 * Xbar * (1 - Xbar)) / (1 + 1 / (n * alpha)))
+}
+
+plot(thetas, rho_J, ylim=c(0, 0.2))
+abline(rho_I, 0, col='red', lwd=5)
+legend("bottomright", c("Longueur de l'intervalle J_n", "Longueur de l'intervalle I_n"), pch=c(16, 16), col=c('black', 'red'))
+
+```
+
+On observe que $J_n$ est plus précis que $I_n$ : la largeur de l'intervalle $J_n$ est toujours plus petite que la largeur de l'intervalle $I_n$. Particulièrement quand $\theta$ est proche de 0 ou de 1 : dans ce cas là, la variance de Bernoulli, qui est égale $\theta(1 - \theta)$ est très proche de 0.
+

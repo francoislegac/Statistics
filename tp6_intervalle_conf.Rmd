@@ -1,0 +1,173 @@
+---
+title: "Intervalles de confiances et tests pour la loi Gaussienne"
+output: html_notebook
+---
+
+Le but de ce notebook est de construire les intervalles de confiance et tests pour l'estimation des param??tres d'une loi normale, lorsque la variance est connue et inconnue.
+
+**Questions**
+
+1. Simuler un ??chantillon de taille $n = 200$ de loi $N(\mu, \sigma^2)$ avec $\mu = 3.$ et $\sigma^2 = 2.$. Faire une repr??sentation graphique de cet ??chantillon.
+
+**R??ponse**
+
+```{r}
+n = 200
+m = 3
+s = sqrt(2)
+X = rnorm(n, mean=m, sd=s)
+hist(X, freq=FALSE)
+```
+
+2. On suppose $\sigma^2$ connu. Constuire un intervalle de confiance pour $\mu$ au niveau $1 - \alpha$. 
+En simulant plusieurs ??chantillons de m??me taille et de m??me loi, on v??rifiera empiriquement la propri??t?? de couverture de l'intervalle de confiance.
+
+**Reponse**
+
+On rappelle que l'intervalle de confiance pour la moyenne $\mu$ pour un ??chantillon de loi $N(\mu, \sigma^2)$ avec $\sigma^2$ connu est donn?? par
+$$
+\bigg[ \bar X_n - \frac{\sigma}{\sqrt n} \Phi^{-1}(1 - \alpha / 2), \bar X_n + \frac{\sigma}{\sqrt n} \Phi^{-1}(1 - \alpha / 2) \bigg],
+$$
+o?? $\Phi^{-1}$ est la fonction quantile de la loi $N(0, 1)$. Ecrivons une fonction qui calcule cette intervalle de confiance.
+
+```{r}
+ic_mean_known_variance = function(X, sd, alpha=0.05) {
+  mean_X = mean(X)
+  q = qnorm(1 - alpha / 2)
+  return(c(left=mean_X - sd / sqrt(n) * q, right=mean_X + sd / sqrt(n) * q))
+}
+
+ic_mean_known_variance(X, sd=sqrt(2))
+```
+
+Simulons maintenant $B = 1000$ ??chantillons de taille $n$ et de loi $N(\mu, \sigma^2)$ avec $\mu = 3.$ et $\sigma^2 = 2.$.
+
+
+
+```{r}
+B = 1000
+X = matrix(rnorm(B * n, m, s), nrow=n, ncol=B)
+```
+
+```{r}
+ics = apply(X, 2, (function(X) ic_mean_known_variance(X, sd=s)))
+```
+
+```{r}
+is_parameter_in = function(m, ic) {
+  return((ic["left"] <= m) && (m <= ic["right"]))
+}
+
+mean(apply(ics, 2, (function(ic) is_parameter_in(m, ic))))
+```
+
+On observe que la probabilit?? de couverture de cet intervalle de confiance est effectement de 95%.
+
+3. Constuire un test pour l'hypoth??se $H_0 : \mu = \mu_0$ contre $H_1 : \mu \neq \mu_0$. Pour $\mu_0 = 3.1$ et $\mu_0 = 1$, calculez la $p$-valeur du test et conclure.
+
+**R??ponse**
+
+Pour le premier test, on va rejeter si
+$$
+| \bar X_n - \mu_0 | \geq \frac{\sigma}{\sqrt n} \Phi^{-1}(1 - \alpha / 2)
+$$
+
+On obtient cela directement ?? partir de l'intervalle de confiance que l'on a construit avant.
+Et la $p$-valeur de ce test est ??gale ??
+$$
+\alpha^* = 2 \bigg( 1 - \Phi\Big( \frac{\sqrt n}{\sigma} | \bar X_n - \mu_0 | \Big) \bigg)
+$$
+
+```{r}
+test_mean_known_variance = function(X, m0, sd) {
+  statistic = sqrt(n) * abs(mean(X) - m0) / sd
+  p.value = 2 * (1 - pnorm(statistic))
+  return(c(statistic=statistic, p.value=p.value))
+}
+```
+
+```{r}
+test_mean_known_variance(X, m0=3.1, sd=s)
+```
+
+```{r}
+test_mean_known_variance(X, m0=2.5, sd=s)
+```
+
+4. Constuire un test pour l'hypoth??se $H_0 : \mu = \mu_0$ contre $H_1 : \mu < \mu_0$. Pour $\mu_0 = 3.1$ et $\mu_0 = 1$, calculez la $p$-valeur du test et conclure.
+
+
+**R??ponse**
+
+Au vu des hypoth??ses du test, on va rejeter si
+$$
+\bar X_n < c
+$$
+o?? $c$ est une constant ?? choisir de sorte que le test soit de niveau $\alpha$. Cette r??gion de rejet revient ??
+
+$$
+\frac{\sqrt n}{\sigma}(\bar X_n - \mu_0)  < c'
+$$
+ou $c'$ est une autre constante. Mais **sous $H_0$ on a $\mu = \mu_0$** est donc la statistique du test $\frac{\sqrt n}{\sigma}(\bar X_n - \mu_0)$ est de loi $N(0, 1)$. On choisit donc $c'$ de telle que sorte que
+
+$$
+\mathbb P [ N(0, 1) < c'] = \alpha
+$$
+donc on choisit $c' = \Phi^{-1}(\alpha)$. Donc le test rejette si
+
+$$
+\frac{\sqrt n}{\sigma}(\bar X_n - \mu_0)  < \Phi^{-1}(\alpha).
+$$
+et sa $p$-valeur est ??gale ??
+$$
+\alpha =  \Phi\Big( \frac{\sqrt n}{\sigma} (\bar X_n - \mu_0 ) \Big)
+$$
+
+
+```{r}
+test_mean_bis_known_variance = function(X, m0, sd) {
+  statistic = sqrt(n) * (mean(X) - m0) / sd
+  p.value = pnorm(statistic)
+  return(c(statistic=statistic, p.value=p.value))
+}
+```
+
+
+```{r}
+test_mean_bis_known_variance(X, m0=2.8, sd=s)
+```
+
+```{r}
+test_mean_bis_known_variance(X, m0=3.2, sd=s)
+```
+
+
+5. Traiter les trois questions pr??c??dantes mais avec cette fois-ci $\sigma^2$ inconnu (on utilisera donc la statistique de Student)
+
+On utilise la statistique de Student qui dit que
+
+$$
+\sqrt{\frac{n}{s^2}} (\bar X_n - \mu)
+$$
+avec
+$$
+s^2 = \frac{1}{n-1} \sum_{i=1}^n(X_i - \mu)^2
+$$
+
+suit une loi de Student ?? $n-1$ degr??s de libert??.
+Donc l'intervalle de confiance avec $\sigma^2$ devient
+$$
+\bigg[ \bar X_n - \sqrt{\frac{s^2}{n}} F_{n-1}^{-1}(1 - \alpha / 2), \bar X_n +\sqrt{\frac{s^2}{n}} F_{n-1}^{-1}(1 - \alpha / 2) \bigg],
+$$
+o?? $F_{n-1}^{-1}$ est la fonction quantile de la loi de Student ?? $n-1$ degr??s de libert??.
+On refait tout de la m??me fa??on qu'avant, mais on remplace $\sigma^2$ par $s^2$ et $\Phi^{-1}$ par,$F_{n-1}^{-1}$.
+
+6. On suppose toujours $\mu$ inconnu, mais cette fois-ci on s'int??resse ?? l'estimation de $\sigma^2$: construire un intervalle de confiance pour ce param??tre, simulez plusieurs ??chantillons et v??rifiez empiriquement la propri??t?? de couverture de l'intervalle.
+
+7. Construire un test pour les hypoth??ses $H_0 : \sigma^2 = \sigma_0^2$ contre $H_1 : \sigma^2 \neq \sigma_0^2$ puis pour $H_0 : \sigma^2 = \sigma_0^2$ contre $H_1 : \sigma^2 \geq \sigma_0^2$. Calculez leurs $p$-valeurs et conclure pour $\sigma_0^2 = 1.9$ et $\sigma_0^2 = 3$.
+
+On suppose maintenant que l'on veut comparer les moyennes de deux ??chantillons gaussiens.
+
+8. Simulez un premier ??chantillon Gaussien de taille $n_1 = 200$, de moyenne $\mu_1 = 2.$ et de variance $\sigma^2 = 1$. Simulez un deuxi??me ??chantillon Gaussien de taille $n_2 = 150$, de moyenne $\mu_2 = 2.5$ et de m??me variance $\sigma^2 = 1$. Construire un test d'hypoth??se $H_0 : \mu_1 = \mu_2$ contre $H_0 : \mu_1 \neq \mu_2$, et calculez sa $p$-valeur. Changer les param??tres $p_1$ et $p_2$ et recalculer la $p$-valeur. Conclure.
+
+

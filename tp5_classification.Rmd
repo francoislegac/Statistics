@@ -1,0 +1,273 @@
+---
+title: "Métriques d'évaluation pour la classification binaire"
+output: html_notebook
+---
+
+## 1. Jeu de données `Heart`
+
+On considère à nouveau le jeu de données `Heart`. On va entraîner une régression logistique pour prédire un problèle cardiaque à partir des covariables (features) du tableau.
+
+```{r}
+# On commence par bien definir le type des colonnes
+types = c('numeric', 'numeric', 'factor', 'factor', 'numeric', 'numeric', 
+          'factor', 'factor',  'numeric', 'factor', 'numeric', 
+          'factor', 'factor', 'factor', 'factor')
+
+heart = read.csv('heart.csv', skipNul=TRUE, colClasses = types)
+
+# Et on enleve la premiere colonne qui contient le numero de la ligne (pas informatif)
+kept = c("Age", "Sex", "ChestPain", "RestBP", "Chol", 
+         "Fbs", "RestECG", "MaxHR", "ExAng",  "Oldpeak",
+         "Slope", "Ca", "Thal", "AHD")
+
+# On enleve les valeurs manquantes
+heart = na.omit(heart[kept])
+head(heart)
+```
+
+```{r}
+summary(heart)
+```
+
+## 2. Régression logistique
+
+On veut prédire la variable `AHD` à partir des autres. 
+Cette variable est à valeurs dans $\{0, 1\}$: on parle alors d'un problème de classification binaire.
+Un modèle très classique, du type GLM (generalized linear model) qui permet de prédire des labels binaires est la régression logistique.
+
+### Questions
+
+- Entrainer une régression logistique avec la fonction `glm`
+- Faire un plot des coefficients. On pourra utiliser la fonction `coefplot` de la librairie `coefplot`
+
+```{r}
+model = glm(AHD ~ ., family='binomial', data=heart)
+summary(model)
+```
+
+```{r}
+library(coefplot)
+
+coefplot(model, vertical=FALSE)
+```
+
+## 3. Prédiction
+
+La régression logistique propose une estimation de la probabilité que le label soit $0$ ou $1$. L'attribut `fitted.values` donne ces estimations.
+
+### Questions
+
+- Afficher les 20 premières valeurs de `fitted.values` et de la colonne `AHD`. Qu'observez-vous ?
+
+```{r}
+y = as.numeric(heart$AHD) - 1
+phat = as.numeric(model$fitted.values)
+
+plot(phat[1:30], col='red')
+points(y[1:30], col='blue')
+legend("bottomleft", inset=c(0, 0.5),legend=c('Prediction', 'Truth'), col=c('red', 'blue'), lty=1:2)
+```
+
+## 4. Matrice de confusion, accuracy, précision et rappel
+
+Pour remplacer les probabilités par des prédictions binaires $0$ ou $1$, il faut choisir un seuil : au dessus du seuil, on prédit $1$, sinon c'est $0$.
+
+### Questions
+
+- Calculez les prédictions obtenues pour un seuil égal à 0.5
+- Comparez les prédictions et les vraies valeurs
+- Calculez la matrice de confusion : taux de vrais positifs (TP), vrais négatifs (TN), faux négatifs (FN), faux positifs (FP) associée à ces prédictions. Le faire avec `caret` et à la main.
+- Calculez l'accuracy, la précision et le rappel de ces prédictions
+
+```{r}
+library(caret)
+
+yhat = as.numeric(phat >= 0.5)
+confusionMatrix(yhat, y, positive="1")
+```
+
+```{r}
+# On retrouve a la main la plupart de ces metriques de classification dans la fonction suivante
+# yhat : un vecteur numerique qui contient des 0 et des 1 (predictions)
+# y : un vecteur numerique qui contient des 0 et des 1 (vrais labels)
+my_metrics = function(yhat, y) {
+  n = length(y)
+  # On commence par convertir en vecteurs booleens
+  yhat = (yhat == 1)
+  y = (y == 1)
+  # Nombre de vrais positifs (on prédit 1 alors que c'est 1)
+  tp = sum(y[yhat])
+  # Nombre de faux positifs (on prédit 1 alors que c'est 0)
+  fp = sum(!y[yhat])
+  # Nombre de vrais négatifs (on prédit 0 alors que c'est 0)
+  tn = sum(!y[!yhat])
+  # Nombre de faux négatifs (on prédit 0 alors que c'est 1)
+  fn = sum(y[!yhat])
+  confusion = matrix(c(tn, fn, fp, tp), nrow=2, byrow=TRUE)
+  
+  # sensitivity = rappel = combien de 1 on a retrouvé
+  sensitivity = tp / (tp + fn)
+  # 1 - proportion de fausse alarmes
+  specificity = tn / (tn + fp)
+  # Proportion de 1 correctement rappelés
+  # Parmi les labels prédits à 1, quelle est la combien sont corrects ?
+  precision = tp / (tp + fp)
+  
+  return(list(confusion=confusion, sensitivity=sensitivity, 
+              specificity=specificity,precision=precision))
+}
+
+my_metrics(yhat, y)
+```
+
+```{r}
+yhat = as.numeric(phat >= 0.9)
+my_metrics(yhat, y)
+```
+
+```{r}
+yhat = as.numeric(phat >= 0.1)
+my_metrics(yhat, y)
+```
+
+On observe qu'en fonction du choix du seuil, on obtient une bonne specificité, ou a l'inverse, une bonne sensibilité.
+
+## 5. Courbe ROC
+
+La courbe ROC permet d'évaluer directement les probabilités : il s'agit d'une métrique qui permet de se dispenser du choix d'un seuil pour construire les prédictions.
+L'idée est d'essayer plusieurs valeurs de seuil $t \in [0, 1]$, d'obtenir des prédictions, et calculer la valeur de FP, TP. 
+Cela donne un point de coordonnée (FP(t), TP(t)) pour chaque valeur de seuil.
+
+### Question
+
+- Dessinez la courbe ROC avec `caret`
+- Reconstruisez à la main la courbe ROC. Cela demande une petite réflexion: on ne balaiera en effet pas différentes valeurs de seuils...
+
+```{r}
+library(pROC)
+
+plot.roc(y, phat, lwd=3)
+```
+
+Une métrique de classification qui est classique c'est l'aire sous la courbe ROC, qui est comprise entre 0 et 1 : 1 si les probabilités sont "parfaites" pour le jeu de donnée sur lequel on test le classifieur, et si l'aire est inférieure à 0.5, alors le classifieur fait moins bien qu'un choix aléatoire.
+
+On rappelle que le taux de faux positif, pour un choix de seuil $t$, correspond à
+$$
+\mathrm{FP}(t) = \frac{\sum_{i=1}^n  \mathbf 1_{y_i = 0, \; \hat p_i \geq t}}{\sum_{i=1}^n \mathbf 1_{y_i = 0}}
+$$
+On compte en effet le nombre de fois que l'on prédit $1$ alors que le label est $0$. Le taux de vrais positifs égal à
+$$
+\mathrm{TP}(t) = \frac{\sum_{i=1}^n  \mathbf 1_{y_i = 1, \; \hat p_i \geq t}}{\sum_{i=1}^n \mathbf 1_{y_i = 1}}
+$$
+
+On veut calculer les points de coordonnées $(\mathrm{FP}(t), \mathrm{TP}(t))$ pour des seuils $t \in [0, 1]$. 
+L'idée est donc simplement de trier les scores $\hat p_i$ en ordre décroissant, et d'appliquer cet ordre au $y_i$ : on cherche en effet $\sigma(1), \ldots, \sigma(n)$ tel que 
+$$
+\hat p_{\sigma(1)} \geq \cdots \geq \hat p_{\sigma(n)}
+$$
+de sorte que 
+$$
+\mathrm{TP}(\hat p_{\sigma(k)}) = \frac{\sum_{i=1}^n  \mathbf 1_{y_i = 1, \; \hat p_i \geq \hat p_{\sigma(k)}}}{\sum_{i=1}^n \mathbf 1_{y_i = 1}} = \frac{y_{\sigma(1)} + \cdots + y_{\sigma(k)}}{\sum_{i=1}^n \mathbf 1_{y_i = 1}}.
+$$
+
+
+```{r}
+simple_roc <- function(labels, scores){
+  labels <- labels[order(scores, decreasing=TRUE)]
+  data.frame(TPR=cumsum(labels) / sum(labels), FPR=cumsum(!labels) / sum(!labels), labels)
+}
+simple_roc(y, phat)
+```
+
+
+```{r}
+tpr_fpr = simple_roc(y, phat)
+par(pin=c(3, 3))
+with(tpr_fpr, plot(FPR, TPR, col=1 + labels))
+x = seq(0, 1, by=1/100)
+lines(x, x, lwd=2, lty=2)
+```
+
+## 6. Courbe ROC sur un échantillon de test
+
+Ce que l'on a fait au dessus est très mauvais méthodologiquement : on a entrainé un classifieur sur un 
+échantillon, et on a évalué le classifieur sur le même échantillon.
+En machine learning, pour évaluer un classifieur, il faut toujours utiliser un principe de validation-croisée : on cache une partie du jeu de données, dont on sert ensuite pour évaluer.
+
+### Question
+
+- Découpez l'échantillon en deux morceaux : 70% pour l'entrainement et 30% pour l'évaluation du modèle. On utilisera encore la librairie `caret`
+- Entrainez le modèle sur le premier échantillon (70% du jeu complet) et évaluez le sur les 30% restants.
+
+#### On splitte l'échantillon en train et test
+
+```{r}
+train_index <- createDataPartition(heart$AHD, p=0.7, list=FALSE)
+heart_train = heart[train_index,]
+heart_test = heart[-train_index,]
+```
+
+
+```{r}
+summary(heart_train)
+```
+
+
+```{r}
+summary(heart_test)
+```
+
+#### On entraine la régression logistique sur le train
+
+```{r}
+model_train = glm(AHD ~ ., family='binomial', data=heart_train)
+summary(model_train)
+```
+
+```{r}
+coefplot(model_train, vertical=FALSE)
+```
+
+#### On récupère les labels de l'échantillon de test et on obtient les scores prédits
+
+Le label est la variable `AHD` sur l'échantillon de test, et on fait prédire la régression logistique sur l'échantillon de test
+
+Par défabut `predict` renvoie les prédictions dans l'échelle des prédicteurs linéaire : c'est à dire les 
+$$
+x_i^\top w + b
+$$
+où $x_i$ est la ligne de données (qui contient la valeur des variables pour la ligne $i$), $w$ sont les coefficients du modèle et $b$ est l'intercept
+
+```{r}
+model_train$coefficients
+```
+
+
+```{r}
+y_test = as.numeric(heart_test$AHD) - 1
+phat_test = as.numeric(predict(model_train, heart_test, type='response'))
+```
+
+
+```{r}
+yhat_test = as.numeric(phat_test >= 0.5)
+confusionMatrix(yhat_test, y_test, positive="1")
+```
+
+
+```{r}
+tpr_fpr_test = simple_roc(y_test, phat_test)
+
+par(pin=c(3, 3))
+with(tpr_fpr_test, plot(FPR, TPR, col=1 + labels))
+x = seq(0, 1, by=1/100)
+lines(x, x, lwd=2, lty=2)
+```
+
+```{r}
+par(pin=c(3, 3))
+with(tpr_fpr, plot(FPR, TPR, col=1 + labels))
+x = seq(0, 1, by=1/100)
+lines(x, x, lwd=2, lty=2)
+```
+
